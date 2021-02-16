@@ -1,0 +1,20 @@
+# github.com/apoorvam/goterminal v0.0.0-20180523175556-614d345c47e5
+## explicit
+# github.com/fatih/color v1.10.0
+## explicit
+github.com/fatih/color
+# github.com/kenshaw/emoji v0.1.0
+## explicit
+# github.com/machinebox/graphql v0.2.2
+## explicit
+github.com/machinebox/graphql
+# github.com/mattn/go-colorable v0.1.8
+github.com/mattn/go-colorable
+# github.com/mattn/go-isatty v0.0.12
+## explicit
+github.com/mattn/go-isatty
+# github.com/pkg/errors v0.9.1
+## explicit
+github.com/pkg/errors
+# golang.org/x/sys v0.0.0-20200223170610-d5e6a3e2c0ae
+golang.org/x/sys/unix
