@@ -1,19 +1,25 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/fatih/color"
+	"github.com/gdamore/tcell/v2"
 	"github.com/machinebox/graphql"
+	"github.com/rivo/tview"
 )
 
 func main() {
 	projectNumber := flag.Int("p", 0, "project number")
 	user := flag.String("u", "", "filter by user")
+	interactive := flag.Bool("i", false, "interactive mode")
 	flag.Parse()
 	client := graphql.NewClient("https://api.github.com/graphql")
 	req := graphql.NewRequest(`query viewProject($project: Int!) {
@@ -75,21 +81,138 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	w := tabwriter.NewWriter(os.Stdout, 0, 2, 1, ' ', 0)
+	if !*interactive {
+		w := tabwriter.NewWriter(os.Stdout, 0, 2, 1, ' ', 0)
+		for _, col := range res.Organization.Project.Columns.Nodes {
+			fmt.Fprintf(w, "%s\t%s\t\t\n", color.GreenString(" "), color.GreenString(col.Name))
+			for _, card := range col.Cards.Nodes {
+				if *user != "" && getOwner(card.Content) != *user {
+					continue
+				}
+				if card.Note != "" {
+					fmt.Fprintf(w, "%s\t%s\t%s\t\n", color.GreenString(" "), color.GreenString(" "), capStr(card.Note, 60))
+					continue
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+					color.BlueString(fmt.Sprintf("%v", card.Content.Number)),
+					color.MagentaString(getOwner(card.Content)),
+					capStr(card.Content.Title, 60),
+					color.CyanString(card.Content.URL))
+			}
+		}
+		w.Flush()
+	} else {
+		doTUI(res)
+	}
+}
+
+func doTUI(res Data) {
+	app := tview.NewApplication()
+	app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		screen.Clear()
+		return false
+	})
+	table := tview.NewTable()
+	table.SetBackgroundColor(tcell.ColorBlack)
+	n := -1
 	for _, col := range res.Organization.Project.Columns.Nodes {
-		fmt.Fprintf(w, "%s\t%s\t\t\n", color.GreenString(" "), color.GreenString(col.Name))
+		n++
+		name := col.Name
+		table.SetCell(n, 1, tview.NewTableCell(name).SetTextColor(tcell.ColorGreen))
 		for _, card := range col.Cards.Nodes {
-			if *user != "" && getOwner(card.Content) != *user {
+			n++
+			if card.Content.Number == 0 {
+				table.SetCell(
+					n, 0,
+					tview.NewTableCell("note").SetTextColor(tcell.ColorWhite),
+				)
+				table.SetCell(
+					n, 2,
+					tview.NewTableCell(capStr(card.Note, 60)),
+				)
 				continue
 			}
-			if card.Note != "" {
-				fmt.Fprintf(w, "%s\t%s\t%s\t\n", color.GreenString(" "), color.GreenString(" "), capStr(card.Note, 60))
-				continue
-			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", color.BlueString(fmt.Sprintf("%v", card.Content.Number)), color.MagentaString(getOwner(card.Content)), capStr(card.Content.Title, 60), color.CyanString(card.Content.URL))
+			number := fmt.Sprint(card.Content.Number)
+			owner := getOwner(card.Content)
+			title := capStr(card.Content.Title, 60)
+			url := card.Content.URL
+
+			table.SetCell(
+				n, 0,
+				tview.NewTableCell(number).SetTextColor(tcell.ColorBlue),
+			)
+			table.SetCell(
+				n, 1,
+				tview.NewTableCell(owner).SetTextColor(tcell.ColorFuchsia),
+			)
+			table.SetCell(
+				n, 2,
+				tview.NewTableCell(title),
+			)
+			table.SetCell(
+				n, 3,
+				tview.NewTableCell(url).SetTextColor(tcell.ColorBlueViolet),
+			)
 		}
 	}
-	w.Flush()
+
+	table.SetSelectable(true, false)
+
+	flex := tview.NewFlex()
+	flex.AddItem(table, 0, 3, true)
+
+	textbox := tview.NewTextView()
+	textbox.Box.SetBorder(true)
+
+	hasBox := false
+
+	table.SetSelectedFunc(func(row int, column int) {
+		cell := table.GetCell(row, 3)
+		if cell.Text == "" {
+			table.Select(row+1, column)
+		}
+		if cell.Text == "" || strings.Contains(cell.Text, "pull") {
+			return
+		}
+		buf := bytes.Buffer{}
+		errBuf := bytes.Buffer{}
+		cmd := exec.Command("gh", "issue", "view", cell.Text, "--comments")
+		cmd.Stdout = &buf
+		cmd.Stderr = &errBuf
+		err := cmd.Run()
+		if err != nil {
+			panic(err.Error() + errBuf.String())
+		}
+		textbox.SetText(buf.String())
+		if !hasBox {
+			flex.AddItem(textbox, 0, 3, true)
+			hasBox = true
+		}
+		textbox.ScrollToBeginning()
+		app.SetFocus(textbox)
+	})
+
+	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEscape && hasBox {
+			flex.RemoveItem(textbox)
+			app.SetFocus(table)
+			hasBox = false
+			return nil
+		}
+		return event
+	})
+
+	if err := app.SetRoot(flex, true).EnableMouse(true).Run(); err != nil {
+		panic(err)
+	}
+}
+
+func getURL(table *tview.Table, row int) string {
+	cell := table.GetCell(row, 3)
+	if cell == nil {
+		return ""
+	}
+	return cell.Text
 }
 
 func getOwner(c Content) string {
