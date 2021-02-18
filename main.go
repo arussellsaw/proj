@@ -176,7 +176,7 @@ func doTUI(res Data) {
 		}
 		buf := bytes.Buffer{}
 		errBuf := bytes.Buffer{}
-		cmd := exec.Command("gh", "issue", "view", cell.Text, "--comments")
+		cmd := exec.Command("gh", "issue", "view", cell.Text)
 		cmd.Stdout = &buf
 		cmd.Stderr = &errBuf
 		err := cmd.Run()
