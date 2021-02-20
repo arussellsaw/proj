@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"strings"
 
 	"github.com/machinebox/graphql"
 )
@@ -197,6 +199,47 @@ func ReopenIssue(ctx context.Context, issue Content) error {
 
 	res := struct{}{}
 	err := client.Run(ctx, req, &res)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func MoveCard(ctx context.Context, issue Content, projectID int, colName string) error {
+	proj, err := GetProject(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	var (
+		colID  string
+		cardID string
+	)
+	for _, col := range proj.Organization.Project.Columns.Nodes {
+		if strings.ToLower(colName) == strings.ToLower(col.Name) ||
+			strings.ToLower(strings.Replace(col.Name, " ", "", -1)) == strings.ToLower(colName) {
+			colID = col.ID
+		}
+		for _, card := range col.Cards.Nodes {
+			if card.Content.Number == issue.Number {
+				cardID = card.ID
+			}
+		}
+	}
+	if colID == "" || cardID == "" {
+		return fmt.Errorf("couldn't move card: cardid: %s colid: %s", cardID, colID)
+	}
+	client := graphql.NewClient("https://api.github.com/graphql")
+	req := graphql.NewRequest(`mutation moveCard($cardid: ID!, $colid: ID!) {
+			moveProjectCard(input: {cardId: $cardid, columnId: $colid}) {
+				clientMutationId
+			}
+	}`)
+	req.Var("colid", colID)
+	req.Var("cardid", cardID)
+	req.Header.Set("Authorization", "Bearer "+os.Getenv("GITHUB_TOKEN"))
+
+	res := struct{}{}
+	err = client.Run(ctx, req, &res)
 	if err != nil {
 		return err
 	}

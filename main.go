@@ -20,10 +20,10 @@ func main() {
 
 	ctx := context.Background()
 	if !*interactive {
-	res, err := GetProject(ctx, *projectNumber)
-	if err != nil {
-		log.Fatal(err)
-	}
+		res, err := GetProject(ctx, *projectNumber)
+		if err != nil {
+			log.Fatal(err)
+		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 2, 1, ' ', 0)
 		for _, col := range res.Organization.Project.Columns.Nodes {
 			fmt.Fprintf(w, "%s\t%s\t\t\n", color.GreenString(" "), color.GreenString(col.Name))

@@ -90,6 +90,10 @@ func doTUI(ctx context.Context, id int) {
 			if len(args) >= 3 {
 				issue = args[2]
 			}
+			if _, ok := issues[issue]; !ok {
+				inputField.SetText(fmt.Sprintf("unsupported command on %s", issue))
+				return
+			}
 			inputField.SetText(fmt.Sprintf("assigning %s to %s", args[1], issue))
 			err := AssignIssue(context.Background(), args[1], issues[issue])
 			if err != nil {
@@ -102,6 +106,10 @@ func doTUI(ctx context.Context, id int) {
 		case ":unassign":
 			if len(args) >= 3 {
 				issue = args[2]
+			}
+			if _, ok := issues[issue]; !ok {
+				inputField.SetText(fmt.Sprintf("unsupported command on %s", issue))
+				return
 			}
 			inputField.SetText(fmt.Sprintf("removing %s from %s", args[1], issue))
 			err := UnassignIssue(context.Background(), args[1], issues[issue])
@@ -116,13 +124,17 @@ func doTUI(ctx context.Context, id int) {
 			if len(args) >= 2 {
 				issue = args[1]
 			}
+			if iss, ok := issues[issue]; !ok || strings.Contains(iss.URL, "pull") {
+				inputField.SetText(fmt.Sprintf("unsupported command on %s", issue))
+				return
+			}
 			inputField.SetText(fmt.Sprintf("closing %s", issue))
 			err := CloseIssue(context.Background(), issues[issue])
 			if err != nil {
 				panic(err)
 			}
 			// wait for github automation to move stuff around
-			time.Sleep(1 * time.Second)
+			time.Sleep(500 * time.Millisecond)
 			issues, err = refreshTable(ctx, table, id)
 			if err != nil {
 				panic(err)
@@ -132,17 +144,43 @@ func doTUI(ctx context.Context, id int) {
 				issue = args[1]
 			}
 			inputField.SetText(fmt.Sprintf("closing %s", issue))
+			if iss, ok := issues[issue]; !ok || strings.Contains(iss.URL, "pull") {
+				inputField.SetText(fmt.Sprintf("unsupported command on %s", issue))
+				return
+			}
 			err := ReopenIssue(context.Background(), issues[issue])
 			if err != nil {
 				panic(err)
 			}
 			// wait for github automation to move stuff around
-			time.Sleep(1 * time.Second)
+			time.Sleep(500 * time.Millisecond)
+			issues, err = refreshTable(ctx, table, id)
+			if err != nil {
+				panic(err)
+			}
+		case ":move":
+			if len(args) >= 3 {
+				issue = args[2]
+			}
+			colName := args[1]
+			if iss, ok := issues[issue]; !ok || strings.Contains(iss.URL, "pull") {
+				inputField.SetText(fmt.Sprintf("unsupported command on %s", issue))
+				return
+			}
+			inputField.SetText(fmt.Sprintf("moving %s", issue))
+			err := MoveCard(context.Background(), issues[issue], id, colName)
+			if err != nil {
+				panic(err)
+			}
 			issues, err = refreshTable(ctx, table, id)
 			if err != nil {
 				panic(err)
 			}
 		case ":q":
+			if focusIssue != "" {
+				flex.RemoveItem(textbox)
+				return
+			}
 			app.Stop()
 		}
 	})
