@@ -63,6 +63,7 @@ type Columns struct {
 type Project struct {
 	Columns Columns `json:"columns"`
 	Name    string  `json:"name"`
+	Number  int     `json:"number"`
 }
 type Organization struct {
 	Project Project `json:"project"`
@@ -75,6 +76,7 @@ const viewProjectQuery = `query viewProject($project: Int!) {
   organization(login: "sourcegraph") {
     project(number: $project) {
 			name
+			number
       columns(first: 10) {
         nodes {
           cards {
@@ -136,6 +138,65 @@ func AssignIssue(ctx context.Context, user string, issue Content) error {
 
 	res := struct{}{}
 	err = client.Run(ctx, req, &res)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func UnassignIssue(ctx context.Context, user string, issue Content) error {
+	userID, err := getUserID(ctx, user)
+	if err != nil {
+		return err
+	}
+	client := graphql.NewClient("https://api.github.com/graphql")
+	req := graphql.NewRequest(`mutation unassignUser($userid: ID! $assignableid: ID!) {
+		removeAssigneesFromAssignable(input: {clientMutationId: "proj", assignableId: $assignableid, assigneeIds: [$userid]}) {
+				clientMutationId
+			}
+	}`)
+	req.Var("userid", userID)
+	req.Var("assignableid", issue.ID)
+	req.Header.Set("Authorization", "Bearer "+os.Getenv("GITHUB_TOKEN"))
+
+	res := struct{}{}
+	err = client.Run(ctx, req, &res)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func CloseIssue(ctx context.Context, issue Content) error {
+	client := graphql.NewClient("https://api.github.com/graphql")
+	req := graphql.NewRequest(`mutation closeIssue($issueid: String!) {
+			closeIssue(input: {clientMutationId: "proj", issueId: $issueid}) {
+				clientMutationId
+			}
+	}`)
+	req.Var("issueid", issue.ID)
+	req.Header.Set("Authorization", "Bearer "+os.Getenv("GITHUB_TOKEN"))
+
+	res := struct{}{}
+	err := client.Run(ctx, req, &res)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func ReopenIssue(ctx context.Context, issue Content) error {
+	client := graphql.NewClient("https://api.github.com/graphql")
+	req := graphql.NewRequest(`mutation reopenIssue($issueid: String!) {
+			reopenIssue(input: {clientMutationId: "proj", issueId: $issueid}) {
+				clientMutationId
+			}
+	}`)
+	req.Var("issueid", issue.ID)
+	req.Header.Set("Authorization", "Bearer "+os.Getenv("GITHUB_TOKEN"))
+
+	res := struct{}{}
+	err := client.Run(ctx, req, &res)
 	if err != nil {
 		return err
 	}

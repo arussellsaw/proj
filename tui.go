@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
-func doTUI(res *ProjectQueryResponse) {
+func doTUI(ctx context.Context, id int) {
 	app := tview.NewApplication()
 	app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
 		screen.Clear()
@@ -22,52 +23,10 @@ func doTUI(res *ProjectQueryResponse) {
 	selected := tcell.Style{}.Reverse(true)
 	//selected := tcell.Style{}.Background(tcell.ColorWhite).Foreground(tcell.ColorBlack)
 	table.SetSelectedStyle(selected)
-	n := -1
-	issues := make(map[string]Content)
-	for _, col := range res.Organization.Project.Columns.Nodes {
-		n++
-		name := col.Name
-		table.SetCell(n, 1, tview.NewTableCell(name).SetTextColor(tcell.ColorGreen))
-		table.SetCell(n, 2, tview.NewTableCell(res.Organization.Project.Name).SetTextColor(tcell.ColorGreen))
-		for _, card := range col.Cards.Nodes {
-			n++
-			if card.Content.Number == 0 {
-				table.SetCell(
-					n, 0,
-					tview.NewTableCell("note").SetTextColor(tcell.ColorWhite),
-				)
-				table.SetCell(
-					n, 2,
-					tview.NewTableCell(capStr(card.Note, 60)),
-				)
-				continue
-			}
-			number := fmt.Sprint(card.Content.Number)
-			owner := getOwner(card.Content)
-			title := capStr(card.Content.Title, 60)
-			url := card.Content.URL
-
-			issues[number] = card.Content
-
-			table.SetCell(
-				n, 0,
-				tview.NewTableCell(number).SetTextColor(tcell.ColorBlue),
-			)
-			table.SetCell(
-				n, 1,
-				tview.NewTableCell(owner).SetTextColor(tcell.ColorFuchsia),
-			)
-			table.SetCell(
-				n, 2,
-				tview.NewTableCell(title),
-			)
-			table.SetCell(
-				n, 3,
-				tview.NewTableCell(url).SetTextColor(tcell.ColorLavender),
-			)
-		}
+	issues, err := refreshTable(ctx, table, id)
+	if err != nil {
+		panic(err)
 	}
-
 	table.SetSelectable(true, false)
 
 	flex := tview.NewFlex()
@@ -136,7 +95,53 @@ func doTUI(res *ProjectQueryResponse) {
 			if err != nil {
 				panic(err)
 			}
+			issues, err = refreshTable(ctx, table, id)
+			if err != nil {
+				panic(err)
+			}
+		case ":unassign":
+			if len(args) >= 3 {
+				issue = args[2]
+			}
+			inputField.SetText(fmt.Sprintf("removing %s from %s", args[1], issue))
+			err := UnassignIssue(context.Background(), args[1], issues[issue])
+			if err != nil {
+				panic(err)
+			}
+			issues, err = refreshTable(ctx, table, id)
+			if err != nil {
+				panic(err)
+			}
 		case ":close":
+			if len(args) >= 2 {
+				issue = args[1]
+			}
+			inputField.SetText(fmt.Sprintf("closing %s", issue))
+			err := CloseIssue(context.Background(), issues[issue])
+			if err != nil {
+				panic(err)
+			}
+			// wait for github automation to move stuff around
+			time.Sleep(1 * time.Second)
+			issues, err = refreshTable(ctx, table, id)
+			if err != nil {
+				panic(err)
+			}
+		case ":reopen":
+			if len(args) >= 2 {
+				issue = args[1]
+			}
+			inputField.SetText(fmt.Sprintf("closing %s", issue))
+			err := ReopenIssue(context.Background(), issues[issue])
+			if err != nil {
+				panic(err)
+			}
+			// wait for github automation to move stuff around
+			time.Sleep(1 * time.Second)
+			issues, err = refreshTable(ctx, table, id)
+			if err != nil {
+				panic(err)
+			}
 		case ":q":
 			app.Stop()
 		}
@@ -164,6 +169,63 @@ func doTUI(res *ProjectQueryResponse) {
 	if err := app.SetRoot(vstack, true).EnableMouse(true).Run(); err != nil {
 		panic(err)
 	}
+}
+
+func refreshTable(ctx context.Context, table *tview.Table, id int) (map[string]Content, error) {
+	res, err := GetProject(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	table.Clear()
+	var (
+		n      = -1
+		issues = make(map[string]Content)
+	)
+	for _, col := range res.Organization.Project.Columns.Nodes {
+		n++
+		name := col.Name
+		table.SetCell(n, 1, tview.NewTableCell(name).SetTextColor(tcell.ColorGreen))
+		table.SetCell(n, 2, tview.NewTableCell(res.Organization.Project.Name).SetTextColor(tcell.ColorGreen))
+		for _, card := range col.Cards.Nodes {
+			n++
+			if card.Content.Number == 0 {
+				table.SetCell(
+					n, 0,
+					tview.NewTableCell("note").SetTextColor(tcell.ColorWhite),
+				)
+				table.SetCell(
+					n, 2,
+					tview.NewTableCell(capStr(card.Note, 60)),
+				)
+				continue
+			}
+			number := fmt.Sprint(card.Content.Number)
+			owner := getOwner(card.Content)
+			title := capStr(card.Content.Title, 60)
+			url := card.Content.URL
+
+			issues[number] = card.Content
+
+			table.SetCell(
+				n, 0,
+				tview.NewTableCell(number).SetTextColor(tcell.ColorBlue),
+			)
+			table.SetCell(
+				n, 1,
+				tview.NewTableCell(owner).SetTextColor(tcell.ColorFuchsia),
+			)
+			table.SetCell(
+				n, 2,
+				tview.NewTableCell(title),
+			)
+			table.SetCell(
+				n, 3,
+				tview.NewTableCell(url).SetTextColor(tcell.ColorLavender),
+			)
+		}
+	}
+
+	return issues, nil
 }
 
 func getURL(table *tview.Table, row int) string {
